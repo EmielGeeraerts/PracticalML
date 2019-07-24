@@ -1,0 +1,115 @@
+---
+title: "practicalML_final_project"
+author: "Emiel"
+date: "7/24/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(caret) #for machine learning
+library(mgcv) #to save and load models
+```
+
+## Data exploration
+```{r }
+#start with reading training data
+data <- read.csv("pml-training.csv")
+data <- data[data$new_window == "yes",] #filter out the summary line for each epoch
+data$new_window <- NULL # drop the column as it now has only 1 value
+```
+In this project, the goal was to interpret data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly (class A) and incorrectly (class B, C, D, E). The dataset consists of raw time series with accelerometer data and a summarizing line between each epoch. To simplify analysis, we will focus on the 'summary' line.
+
+We first look at the structure of the dataframe:
+```{r}
+str(data)
+```
+```{r}
+#Set "#DIV/0!" strings to NaN
+data[data == "#DIV/0!"] <- NaN
+
+#remove columns with more than 50% NaN
+data <- data[,!sapply(data, function(x) mean(is.na(x)))>0.1]
+
+#remove rows with nan
+data <- data[complete.cases(data),]
+
+#Set false factor columns to numeric
+real_factor_columns <- c("user_name","raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp",  "classe")
+false_factor_columns <- which(!(names(data) %in% real_factor_columns))
+data[false_factor_columns] <- lapply(data[false_factor_columns], function(x) as.numeric(as.character(x)))
+
+#set the num_window to factor
+data$num_window <- as.factor(data$num_window)
+
+#drop timestamp associated columns
+data$raw_timestamp_part_1 <- NULL
+data$raw_timestamp_part_2 <- NULL
+data$cvtd_timestamp <- NULL
+
+```
+ Next, we massage the data into the proper format. Columns containing more than 50% NaN (indicated as #DIV/0! here) get dropped, followed by removal of any rows which still contain NaN after this. Data is coerced into numeric and factor where necessary and timestamp associated columns get dropped. This leaves us with a total of `r nrow(data) ` observations. The resulting data structure is given below:
+ 
+```{r}
+str(data)
+```
+ 
+
+
+
+
+```{r}
+#perform train-test split
+index = createDataPartition(data[,'classe'], p = 0.7, list = F )
+training = data[index,] 
+testing = data[-index,] 
+```
+We now perform a train-test split. We put `r nrow(training) ` in the training set and `r nrow(testing) ` in the testing set. All further data exploration is done on the training dataset.
+
+First we check whether all classes are represented in the training dataset:
+```{r}
+table(training$classe)
+```
+
+
+
+## Model building
+
+We try to fit a random forest model
+
+```{r pressure, echo=FALSE, warning=FALSE}
+#Load model if exists, else rebuild it
+if (file.exists("rf_fit.rds")){
+  rf_fit <- readRDS("rf_fit.rds")
+} else{ 
+  rf_fit <- train(classe~., 
+            data = training,
+            method = "rf",
+            preProcess = c('center', 'scale'),
+            prox = TRUE
+  )
+  saveRDS(rf_fit, "rf_fit.rds")
+}
+rf_fit
+```
+## Quality control
+
+What is the performance of the model on the training data?
+```{r}
+pred_training <- predict(rf_fit, training)
+training$predRight <- pred_training == training$classe
+
+table(pred_training, training$classe)
+```
+
+## Test performance
+
+What is the performance of the model on the test data?
+
+```{r}
+pred_testing <- predict(rf_fit, testing)
+testing$predRight <- pred_testing == testing$classe
+
+table(pred_testing, testing$classe)
+```
